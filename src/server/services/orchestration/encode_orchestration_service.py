@@ -45,12 +45,15 @@ class SimulationOrchestrator(IOrchestrator):
 
         merged_data = self._merge_window_results(request_data, window_results)
 
+        # Capture individual window simulations for debug mode (before merger consumes them)
+        individual_simulations = merged_data.get('simulations', {}) if request_data.get('debug_mode', False) else None
+
         merger_result = self._call_merger_service(merged_data, file)
 
         # Check if debug mode is enabled in request
         debug_mode = request_data.get('debug_mode', False)
 
-        return self._build_final_response(merger_result, window_results, debug_mode)
+        return self._build_final_response(merger_result, individual_simulations, debug_mode)
 
     def _merge_window_results(self, request_data: dict, window_results: list) -> Dict[str, Any]:
         """Merge results from all window processing"""
@@ -72,14 +75,14 @@ class SimulationOrchestrator(IOrchestrator):
     def _build_final_response(
         self,
         merger_result: 'MergerResponse',
-        window_results: list = None,
+        individual_simulations: dict = None,
         debug_mode: bool = False
     ) -> Dict[str, Any]:
         """Build final response from merger result
 
         Args:
             merger_result: Merged result from merger service
-            window_results: Individual window results (optional, for debug)
+            individual_simulations: Dict of individual window simulations {window_name: prediction_array}
             debug_mode: If True, include window_results in response
 
         Returns:
@@ -93,15 +96,15 @@ class SimulationOrchestrator(IOrchestrator):
         }
 
         # Include individual window results only if debug mode is enabled
-        if debug_mode and window_results:
-            # Convert window results to serializable format
+        if debug_mode and individual_simulations:
+            # Convert individual simulations to serializable format
             debug_window_results = {}
-            for window_name, result_dict in window_results:
-                if isinstance(result_dict, dict):
-                    debug_window_results[window_name] = {
-                        'result': result_dict.get(RequestField.DF_MATRIX.value, []),
-                        'mask': result_dict.get(RequestField.ROOM_MASK.value, {})
-                    }
+            for window_name, prediction_array in individual_simulations.items():
+                # Each prediction_array is the raw ML model output for this window
+                debug_window_results[window_name] = {
+                    'result': prediction_array.tolist() if hasattr(prediction_array, 'tolist') else prediction_array,
+                    'mask': {}  # Mask would need to be captured separately if needed
+                }
             response['window_results'] = debug_window_results
 
         return response
